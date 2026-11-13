@@ -1,0 +1,52 @@
+#!/usr/bin/expect -f
+# Headless version of "step 3" (soc_term x2 + make run-only + 'c'), plus a shared folder.
+# usage: ./run_guest.exp <logname> "<guest command>" [extra make args, e.g. QEMU_MEM=16384]
+#   - qemu_dev/ is shared into the guest at /mnt/host (9p)
+#   - normal world log -> logs/<logname>_nw.log, secure world -> logs/<logname>_sw.log
+set timeout 3600
+set name [lindex $argv 0]
+set gcmd [lindex $argv 1]
+set extra [lrange $argv 2 end]
+set dev [file normalize [file dirname [info script]]]
+cd $dev/optee/build
+log_user 0
+
+spawn ./soc_term.py 54320
+set nw $spawn_id
+spawn ./soc_term.py 54321
+set sw $spawn_id
+spawn make run-only QEMU_VIRTFS_ENABLE=y QEMU_VIRTFS_HOST_DIR=$dev {*}$extra
+set q $spawn_id
+
+# secure world: always drain into its log so its terminal never blocks
+set swf [open $dev/logs/${name}_sw.log w]
+expect_background -i $sw -re ".+" {
+	puts -nonewline $swf $expect_out(buffer); flush $swf
+}
+# normal world: record everything into its log
+set nwf [open $dev/logs/${name}_nw.log w]
+proc nw_expect {pat} {
+	global nw nwf
+	set acc ""
+	expect -i $nw -re ".+" {
+		puts -nonewline $nwf $expect_out(buffer); flush $nwf
+		append acc $expect_out(buffer)
+		if {[string first $pat $acc] < 0} { exp_continue }
+	} timeout { puts "TIMEOUT waiting for $pat"; exit 1 }
+}
+
+expect -i $q "(qemu)"
+send -i $q "c\r"
+nw_expect "ogin:"
+send -i $nw "root\r"
+nw_expect "# "
+send -i $nw "mkdir -p /mnt/host && mount -t 9p -o trans=virtio host /mnt/host\r"
+nw_expect "# "
+# the '' keeps the echoed command line from matching the marker
+send -i $nw "$gcmd; echo RUN_GUEST_''DONE\r"
+nw_expect "RUN_GUEST_DONE\r"
+send -i $q "quit\r"
+expect -i $q eof
+after 500
+close $swf
+close $nwf

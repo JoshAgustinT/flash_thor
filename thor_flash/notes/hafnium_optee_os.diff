@@ -1,0 +1,244 @@
+diff --git a/core/arch/arm/mm/core_mmu_lpae.c b/core/arch/arm/mm/core_mmu_lpae.c
+index a4010280b..38d356dc9 100644
+--- a/core/arch/arm/mm/core_mmu_lpae.c
++++ b/core/arch/arm/mm/core_mmu_lpae.c
+@@ -283,9 +283,9 @@ static uint64_t xlat_tables[XLAT_TABLE_SIZE * MAX_XLAT_TABLES /
+ 			    XLAT_ENTRY_SIZE]
+ 	__aligned(XLAT_TABLE_SIZE) __section(".nozi.mmu.l2");
+ 
+-/* MMU L2 table for TAs, one for each thread */
+-static uint64_t xlat_tables_ul1[XLAT_TABLE_SIZE * CFG_NUM_THREADS /
+-				XLAT_ENTRY_SIZE]
++/* MMU L2 tables for TAs, CFG_NUM_TA_L2_TBLS for each thread (TEEm S2M) */
++static uint64_t xlat_tables_ul1[XLAT_TABLE_SIZE * CFG_NUM_THREADS *
++				CFG_NUM_TA_L2_TBLS / XLAT_ENTRY_SIZE]
+ 	__aligned(XLAT_TABLE_SIZE) __section(".nozi.mmu.l2");
+ 
+ #if (CORE_MMU_BASE_TABLE_LEVEL == 0)
+@@ -533,7 +533,8 @@ static uint64_t *get_l2_ta_tables(struct mmu_partition *prtn, size_t thread_id)
+ {
+ 	assert(thread_id < CFG_NUM_THREADS);
+ 
+-	return prtn->l2_ta_tables + XLAT_TABLE_ENTRIES * thread_id;
++	return prtn->l2_ta_tables +
++	       XLAT_TABLE_ENTRIES * CFG_NUM_TA_L2_TBLS * thread_id;
+ }
+ 
+ #if (CORE_MMU_BASE_TABLE_LEVEL == 0)
+@@ -954,6 +955,7 @@ static void set_user_va_idx(struct mmu_partition *prtn)
+ {
+ 	uint64_t *tbl = NULL;
+ 	unsigned int n = 0;
++	unsigned int free_run = 0;
+ 
+ 	assert(prtn);
+ 
+@@ -982,11 +984,15 @@ static void set_user_va_idx(struct mmu_partition *prtn)
+ 
+ 	/*
+ 	 * Search level 1 table (i.e. 1GB mapping per entry) for
+-	 * an empty entry in the range [1GB, 4GB[.
++	 * CFG_NUM_TA_L2_TBLS contiguous empty entries, in the range
++	 * [1GB, 4GB[ if only one is needed (vanilla, 32-bit TA compatible).
+ 	 */
+-	for (n = 1; n < ARM32_USER_VA_SLOT_LIMIT; n++) {
+-		if ((tbl[n] & DESC_ENTRY_TYPE_MASK) == INVALID_DESC) {
+-			user_va_idx = n;
++	for (n = 1; n < (CFG_NUM_TA_L2_TBLS > 1 ? MIN(NUM_BASE_LEVEL_ENTRIES,
++			XLAT_TABLE_ENTRIES) : ARM32_USER_VA_SLOT_LIMIT); n++) {
++		if ((tbl[n] & DESC_ENTRY_TYPE_MASK) != INVALID_DESC)
++			free_run = 0;
++		else if (++free_run == CFG_NUM_TA_L2_TBLS) {
++			user_va_idx = n + 1 - CFG_NUM_TA_L2_TBLS;
+ 			break;
+ 		}
+ 	}
+@@ -1098,7 +1104,8 @@ void core_init_mmu(struct memory_map *mem_map)
+ 		boot_mem_add_reloc(&prtn->base_tables);
+ 
+ 		prtn->l2_ta_tables = boot_mem_alloc(XLAT_TABLE_SIZE *
+-						    CFG_NUM_THREADS,
++						    CFG_NUM_THREADS *
++						    CFG_NUM_TA_L2_TBLS,
+ 						    XLAT_TABLE_SIZE);
+ 		boot_mem_add_reloc(&prtn->l2_ta_tables);
+ 	}
+@@ -1295,6 +1302,7 @@ void core_mmu_get_user_pgdir(struct core_mmu_table_info *pgd_info)
+ 
+ 	core_mmu_get_user_va_range(&va_range_base, NULL);
+ 	core_mmu_set_info_table(pgd_info, 2, va_range_base, tbl);
++	pgd_info->num_entries *= CFG_NUM_TA_L2_TBLS;
+ }
+ 
+ void core_mmu_create_user_map(struct user_mode_ctx *uctx,
+@@ -1305,7 +1313,7 @@ void core_mmu_create_user_map(struct user_mode_ctx *uctx,
+ 	COMPILE_TIME_ASSERT(sizeof(uint64_t) * XLAT_TABLE_ENTRIES == PGT_SIZE);
+ 
+ 	core_mmu_get_user_pgdir(&dir_info);
+-	memset(dir_info.table, 0, PGT_SIZE);
++	memset(dir_info.table, 0, PGT_SIZE * CFG_NUM_TA_L2_TBLS);
+ 	core_mmu_populate_user_map(&dir_info, uctx);
+ 	map->user_map = virt_to_phys(dir_info.table) | TABLE_DESC;
+ 	map->asid = uctx->vm_info.asid;
+@@ -1457,7 +1465,7 @@ void core_mmu_get_user_va_range(vaddr_t *base, size_t *size)
+ 	if (base)
+ 		*base = (vaddr_t)user_va_idx << L1_XLAT_ADDRESS_SHIFT;
+ 	if (size)
+-		*size = BIT64(L1_XLAT_ADDRESS_SHIFT);
++		*size = BIT64(L1_XLAT_ADDRESS_SHIFT) * CFG_NUM_TA_L2_TBLS;
+ }
+ 
+ static uint64_t *core_mmu_get_user_mapping_entry(struct mmu_partition *prtn,
+@@ -1605,6 +1613,7 @@ void core_mmu_set_user_map(struct core_mmu_user_map *map)
+ 	struct mmu_partition *prtn = get_prtn();
+ 	uint64_t *entries[NUM_BASE_TABLES] = { };
+ 	unsigned int i = 0;
++	unsigned int k = 0;
+ 
+ 	ttbr = read_ttbr0_el1();
+ 	/* Clear ASID */
+@@ -1616,9 +1625,11 @@ void core_mmu_set_user_map(struct core_mmu_user_map *map)
+ 		entries[i] = core_mmu_get_user_mapping_entry(prtn, i);
+ 
+ 	/* Set the new map */
++	/* TEEm S2M: L1 entry k points to the thread's k-th L2 table */
+ 	if (map && map->user_map) {
+ 		for (i = 0; i < NUM_BASE_TABLES; i++)
+-			*entries[i] = map->user_map;
++			for (k = 0; k < CFG_NUM_TA_L2_TBLS; k++)
++				entries[i][k] = map->user_map + k * PGT_SIZE;
+ 
+ 		dsb();	/* Make sure the write above is visible */
+ 		ttbr |= ((uint64_t)map->asid << TTBR_ASID_SHIFT);
+@@ -1626,7 +1637,8 @@ void core_mmu_set_user_map(struct core_mmu_user_map *map)
+ 		isb();
+ 	} else {
+ 		for (i = 0; i < NUM_BASE_TABLES; i++)
+-			*entries[i] = INVALID_DESC;
++			for (k = 0; k < CFG_NUM_TA_L2_TBLS; k++)
++				entries[i][k] = INVALID_DESC;
+ 
+ 		dsb();	/* Make sure the write above is visible */
+ 	}
+diff --git a/core/include/mm/core_mmu.h b/core/include/mm/core_mmu.h
+index 8d4a4af2a..a9a8af1a4 100644
+--- a/core/include/mm/core_mmu.h
++++ b/core/include/mm/core_mmu.h
+@@ -493,7 +493,7 @@ static inline unsigned core_mmu_va2idx(struct core_mmu_table_info *tbl_info,
+ static inline vaddr_t core_mmu_idx2va(struct core_mmu_table_info *tbl_info,
+ 			unsigned idx)
+ {
+-	return (idx << tbl_info->shift) + tbl_info->va_base;
++	return ((vaddr_t)idx << tbl_info->shift) + tbl_info->va_base;
+ }
+ 
+ /*
+diff --git a/core/mm/fobj.c b/core/mm/fobj.c
+index c70667036..adedd3b23 100644
+--- a/core/mm/fobj.c
++++ b/core/mm/fobj.c
+@@ -808,7 +808,7 @@ static paddr_t sec_mem_get_pa(struct fobj *fobj, unsigned int page_idx)
+ 	assert(refcount_val(&fobj->refc));
+ 	assert(page_idx < fobj->num_pages);
+ 
+-	return tee_mm_get_smem(f->mm) + page_idx * SMALL_PAGE_SIZE;
++	return tee_mm_get_smem(f->mm) + (paddr_t)page_idx * SMALL_PAGE_SIZE;
+ }
+ 
+ /*
+diff --git a/core/mm/mobj.c b/core/mm/mobj.c
+index c7378c6a5..9153fe851 100644
+--- a/core/mm/mobj.c
++++ b/core/mm/mobj.c
+@@ -380,7 +380,7 @@ struct mobj *mobj_with_fobj_alloc(struct fobj *fobj, struct file *file,
+ 
+ 	m->mobj.ops = &mobj_with_fobj_ops;
+ 	refcount_set(&m->mobj.refc, 1);
+-	m->mobj.size = fobj->num_pages * SMALL_PAGE_SIZE;
++	m->mobj.size = (size_t)fobj->num_pages * SMALL_PAGE_SIZE;
+ 	m->mobj.phys_granule = SMALL_PAGE_SIZE;
+ 	m->fobj = fobj_get(fobj);
+ 	m->file = file_get(file);
+diff --git a/core/mm/tee_mm.c b/core/mm/tee_mm.c
+index 99a0884f1..7f0a2d084 100644
+--- a/core/mm/tee_mm.c
++++ b/core/mm/tee_mm.c
+@@ -82,7 +82,7 @@ static size_t tee_mm_stats_allocated(tee_mm_pool_t *pool)
+ 		entry = entry->next;
+ 	}
+ 
+-	return sz << pool->shift;
++	return (size_t)sz << pool->shift;
+ }
+ 
+ void tee_mm_get_pool_stats(tee_mm_pool_t *pool, struct pta_stats_alloc *stats,
+@@ -171,7 +171,7 @@ tee_mm_entry_t *tee_mm_alloc_flags(tee_mm_pool_t *pool, size_t size,
+ 			 * validate there is sufficient memory validate that
+ 			 * (entry->offset << pool->shift) > size.
+ 			 */
+-			if ((entry->offset << pool->shift) < size) {
++			if (((size_t)entry->offset << pool->shift) < size) {
+ 				/* out of memory */
+ 				goto err;
+ 			}
+@@ -180,7 +180,7 @@ tee_mm_entry_t *tee_mm_alloc_flags(tee_mm_pool_t *pool, size_t size,
+ 				panic("invalid pool");
+ 
+ 			remaining = pool->size;
+-			remaining -= ((entry->offset + entry->size) <<
++			remaining -= ((size_t)(entry->offset + entry->size) <<
+ 				      pool->shift);
+ 
+ 			if (remaining < size) {
+@@ -315,7 +315,7 @@ size_t tee_mm_get_bytes(const tee_mm_entry_t *mm)
+ 	if (!mm || !mm->pool)
+ 		return 0;
+ 	else
+-		return mm->size << mm->pool->shift;
++		return (size_t)mm->size << mm->pool->shift;
+ }
+ 
+ bool tee_mm_addr_is_within_range(const tee_mm_pool_t *pool, paddr_t addr)
+@@ -342,7 +342,7 @@ bool tee_mm_is_empty(tee_mm_pool_t *pool)
+ tee_mm_entry_t *tee_mm_find(const tee_mm_pool_t *pool, paddr_t addr)
+ {
+ 	tee_mm_entry_t *entry = pool->entry;
+-	uint16_t offset = (addr - pool->lo) >> pool->shift;
++	size_t offset = (addr - pool->lo) >> pool->shift;
+ 	uint32_t exceptions;
+ 
+ 	if (!tee_mm_addr_is_within_range(pool, addr))
+@@ -367,5 +367,5 @@ tee_mm_entry_t *tee_mm_find(const tee_mm_pool_t *pool, paddr_t addr)
+ 
+ uintptr_t tee_mm_get_smem(const tee_mm_entry_t *mm)
+ {
+-	return (mm->offset << mm->pool->shift) + mm->pool->lo;
++	return ((paddr_t)mm->offset << mm->pool->shift) + mm->pool->lo;
+ }
+diff --git a/lib/libutils/isoc/bget.c b/lib/libutils/isoc/bget.c
+index 1eb268207..a5fef6ee9 100644
+--- a/lib/libutils/isoc/bget.c
++++ b/lib/libutils/isoc/bget.c
+@@ -641,7 +641,7 @@ static void update_free2_sum(struct bpoolset *poolset __maybe_unused,
+ 	uint64_t f2s __maybe_unused = get_free2_sum(poolset);
+ 
+ 	assert(f2s == poolset->free2_sum - r2 + a2);
+-	assert(poolset->free2_sum >= r2);
++	/* TEEm: no ">= r2" check, size^2 of a >=4GB chunk wraps uint64 */
+ 	poolset->free2_sum -= r2;
+ 	poolset->free2_sum += a2;
+ #endif
+diff --git a/mk/config.mk b/mk/config.mk
+index 59625b573..6559b4386 100644
+--- a/mk/config.mk
++++ b/mk/config.mk
+@@ -123,6 +123,9 @@ CFG_MSG_LONG_PREFIX_MASK ?= 0x1a
+ # Number of threads
+ CFG_NUM_THREADS ?= 2
+ 
++# TEEm S2M: number of 1GB L2 page tables (= GB of user VA) per TA thread
++CFG_NUM_TA_L2_TBLS ?= 1
++
+ # API implementation version
+ CFG_TEE_API_VERSION ?= GPD-1.1-dev
+ 

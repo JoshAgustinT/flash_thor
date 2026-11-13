@@ -1,0 +1,23 @@
+make: Entering directory '/home/josh/Desktop/thor_flash/build_4gb/large_mem_tas/host'
+make: 'bigmem' is up to date.
+make: Leaving directory '/home/josh/Desktop/thor_flash/build_4gb/large_mem_tas/host'
+In file included from /home/josh/Desktop/thor_flash/build_4gb/optee-srcs/optee/build/t264/export-ta_arm64/src/user_ta_header.c:12:
+./user_ta_header_defines.h:10:33: warning: conversion from ‘long unsigned int’ to ‘uint32_t’ {aka ‘const unsigned int’} changes value from ‘4294967296’ to ‘0’ [-Woverflow]
+   10 | #define TA_DATA_SIZE            (HEAP_MB * 1024UL * 1024UL)
+      |                                 ^
+/home/josh/Desktop/thor_flash/build_4gb/optee-srcs/optee/build/t264/export-ta_arm64/src/user_ta_header.c:149:28: note: in expansion of macro ‘TA_DATA_SIZE’
+  149 |          &(const uint32_t){TA_DATA_SIZE}},
+      |                            ^~~~~~~~~~~~
+cc1: note: unrecognized command-line option ‘-Wno-c2x-extensions’ may have been intended to silence earlier diagnostics
+b16e0000-0000-0000-0000-000000000001.ta
+b16e0000-0000-0000-0000-000000000400.ta
+b16e0000-0000-0000-0000-000000000800.ta
+b16e0000-0000-0000-0000-000000000c00.ta
+b16e0000-0000-0000-0000-000000000e00.ta
+b16e0000-0000-0000-0000-000000000f00.ta
+b16e0000-0000-0000-0000-000000000f80.ta
+b16e0000-0000-0000-0000-000000000fa0.ta
+b16e0000-0000-0000-0000-000000000fc0.ta
+b16e0000-0000-0000-0000-000000000fe0.ta
+b16e0000-0000-0000-0000-000000001000.ta
+bigmem

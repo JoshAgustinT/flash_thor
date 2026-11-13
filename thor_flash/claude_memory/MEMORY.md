@@ -1,0 +1,14 @@
+- [No commit attribution](no-commit-attribution.md) — never add Co-Authored-By Claude to commits
+- [Self-contained test dirs](self-contained-test-dirs.md) — each scripts/<test>/ has its own logic, no shared common.py helpers; simplicity over DRY
+- [Per-test progress & one-off styles](per-test-progress-and-styles.md) — run notes in scripts/<test>/progress.md, append-only at the end; don't touch styling/ for one figure
+- [Mock first, ask before re-running](ask-before-rerunning-collectors.md) — fake-data plot to agree on format before collecting; never re-run/overwrite data unasked
+- [Progress command format](progress-command-format.md) — one command per line with "> ", ~ paths, terse notes
+- [Single .gitignore](single-gitignore.md) — only the root .gitignore; no per-dir ones
+- [Do only what was asked](do-only-what-was-asked.md) — stop at the asked step; propose, don't chain installs/tests
+- [TEE secure memory must be enforced](tee-secure-memory-must-be-enforced.md) — no normal-DRAM carve-outs hidden via DT; security trade-offs are the user's call
+- [Vanilla OP-TEE: config only](vanilla-optee-change-only-config.md) — qemu_vanilla: change only allowed knobs, accept the resulting limit, don't patch QEMU/TF-A
+- [Flag non-obvious steps](flag-non-obvious-steps.md) — in chat plans, call out surprising/manual steps & missing tools explicitly
+- [Large TA memory goal](large-ta-memory-goal.md) — qemu_dev: minimal large-TA-memory changes; TEEm paper fidelity irrelevant
+- [Research roadmap](research-roadmap.md) — large TA mem on Thor -> TA threads/throughput -> GPU; small upstreamable low-TCB changes
+- [x86: Thor flash state](x86_thor-flash-state.md) — (x86 session 2026-11-13) runbook = ../progress.md; slot A = 4GB-2MB; MB1 option B, MB2 <4GB limit
+- [x86: runbook style & pacing](x86_runbook-style-and-pacing.md) — exact working commands in command-block sections, explicit undo notes, user runs sudo steps

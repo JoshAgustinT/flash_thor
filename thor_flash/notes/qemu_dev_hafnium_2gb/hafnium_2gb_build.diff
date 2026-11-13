@@ -1,0 +1,81 @@
+diff --git a/qemu_v8.mk b/qemu_v8.mk
+index 489a947..63879ab 100644
+--- a/qemu_v8.mk
++++ b/qemu_v8.mk
+@@ -476,8 +476,15 @@ OPTEE_OS_COMMON_FLAGS_SPMC_AT_EL_2 += CFG_ARM_GICV3=n CFG_CORE_HAFNIUM_INTC=y
+ ifeq ($(PLAT_QEMU),virt)
+ # [0e00.0000 0e2f.ffff] is reserved to early boot and SPMC
+ # [0e30.0000 0e33.ffff] is reserved manifest etc (op-tee.pkg)
+-OPTEE_OS_COMMON_FLAGS_SPMC_AT_EL_2 += CFG_TZDRAM_START=0x0e304000
+-OPTEE_OS_COMMON_FLAGS_SPMC_AT_EL_2 += CFG_TZDRAM_SIZE=0x00cfc000
++# Large TA memory, 2GB OP-TEE region @ 0x3000000000 = the Thor first-flash config
++# (+0x4000 = SP pkg header, like the vanilla 0x0e304000)
++OPTEE_OS_COMMON_FLAGS_SPMC_AT_EL_2 += CFG_TZDRAM_START=0x3000004000
++OPTEE_OS_COMMON_FLAGS_SPMC_AT_EL_2 += CFG_TZDRAM_SIZE=0x7fffc000
++# Thor values: 38-bit VA (tegra default), 14 threads, 40 x 1GB L2 tables per TA thread,
++# L3 tables from TA RAM, 2MB core heap, 8MB core VA (14 x 40 x 4KB = 2.2MB of L2 tables)
++OPTEE_OS_COMMON_FLAGS_SPMC_AT_EL_2 += CFG_LPAE_ADDR_SPACE_BITS=38 CFG_NUM_TA_L2_TBLS=40
++OPTEE_OS_COMMON_FLAGS_SPMC_AT_EL_2 += CFG_NUM_THREADS=14 CFG_CORE_PREALLOC_EL0_TBLS=y
++OPTEE_OS_COMMON_FLAGS_SPMC_AT_EL_2 += CFG_CORE_HEAP_SIZE=2097152 CFG_TEE_RAM_VA_SIZE=0x00800000
+ endif
+ OPTEE_OS_COMMON_FLAGS_SPMC_AT_EL_2 += CFG_CORE_WORKAROUND_NSITR_CACHE_PRIME=n
+ OPTEE_OS_COMMON_FLAGS_SPMC_AT_EL_3 = CFG_CORE_EL3_SPMC=y
+diff --git a/qemu_v8/optee_sp_manifest.dts b/qemu_v8/optee_sp_manifest.dts
+index f9968f7..64d7fac 100644
+--- a/qemu_v8/optee_sp_manifest.dts
++++ b/qemu_v8/optee_sp_manifest.dts
+@@ -22,8 +22,8 @@
+ 	execution-ctx-count = <8>;
+ 	exception-level = <2>; /* S-EL1 */
+ 	execution-state = <0>; /* AARCH64 */
+-	load-address = <0xe300000>;
+-	mem-size = <0xd00000>;	/* OP-TEE specific extension */
++	load-address = <0x30 0x00000000>; /* 2GB secure region */
++	mem-size = <0x0 0x80000000>;	/* OP-TEE specific extension, 2GB */
+ 	entrypoint-offset = <0x4000>;
+ 	xlat-granule = <0>; /* 4KiB */
+ 	boot-order = <0>;
+diff --git a/qemu_v8/spmc_el2_manifest.dts b/qemu_v8/spmc_el2_manifest.dts
+index 2f898d4..ddddb92 100644
+--- a/qemu_v8/spmc_el2_manifest.dts
++++ b/qemu_v8/spmc_el2_manifest.dts
+@@ -27,10 +27,11 @@
+ 		compatible = "hafnium,hafnium";
+ 		vm1 {
+ 			is_ffa_partition;
+-			load_address = <0xe300000>;
++			/* 2GB secure region @ 0x3000000000 */
++			load_address = <0x30 0x00000000>;
+ 			debug_name = "op-tee";
+ 			vcpu_count = <4>;
+-			mem_size = <0xd00000>;
++			mem_size = <0x0 0x80000000>;
+ 		};
+ 	};
+ 
+@@ -65,6 +66,12 @@
+ 		reg = <0x0 0xe000000 0x0 0x1000000>;
+ 	};
+ 
++	/* 2GB secure RAM (qemu virt.c patch), OP-TEE SP lives here */
++	memory@3 {
++		device_type = "memory";
++		reg = <0x30 0x00000000 0x0 0x80000000>;
++	};
++
+ 	/* NS memory */
+ 	memory@1 {
+ 		device_type = "ns-memory";
+diff --git a/qemu_v8/tb_fw_config.dts b/qemu_v8/tb_fw_config.dts
+index 68f7b3b..64099dd 100644
+--- a/qemu_v8/tb_fw_config.dts
++++ b/qemu_v8/tb_fw_config.dts
+@@ -12,7 +12,7 @@
+ 		compatible = "arm,sp";
+ 		op-tee {
+ 		       uuid = "486178e0-e7f8-11e3-bc5e-0002a5d5c51b";
+-		       load-address = <0xe300000>;
++		       load-address = <0x30 0x00000000>; /* large secure TA RAM */
+ 		};
+ 	};
+ };

@@ -1,0 +1,86 @@
+diff --git a/plat/qemu/common/qemu_bl2_setup.c b/plat/qemu/common/qemu_bl2_setup.c
+index bfe5a09..40515a6 100644
+--- a/plat/qemu/common/qemu_bl2_setup.c
++++ b/plat/qemu/common/qemu_bl2_setup.c
+@@ -231,7 +231,8 @@ static int load_sps_from_tb_fw_config(struct image_info *image_info)
+ 	void *dtb = (void *)image_info->image_base;
+ 	const char *compat_str = "arm,sp";
+ 	const struct fdt_property *uuid;
+-	uint32_t load_addr;
++	uint32_t load_addr32;
++	uint64_t load_addr;
+ 	const char *name;
+ 	int sp_node;
+ 	int node;
+@@ -253,10 +254,16 @@ static int load_sps_from_tb_fw_config(struct image_info *image_info)
+ 			ERROR("Can't find property uuid in node %s", name);
+ 			return -1;
+ 		}
+-		if (fdt_read_uint32(dtb, sp_node, "load-address",
++		/* 2 cells (64-bit, e.g. above 4GB) or 1 cell */
++		if (fdt_read_uint64(dtb, sp_node, "load-address",
+ 				    &load_addr) < 0) {
+-			ERROR("Can't read load-address in node %s", name);
+-			return -1;
++			if (fdt_read_uint32(dtb, sp_node, "load-address",
++					    &load_addr32) < 0) {
++				ERROR("Can't read load-address in node %s",
++				      name);
++				return -1;
++			}
++			load_addr = load_addr32;
+ 		}
+ 		if (qemu_io_register_sp_pkg(name, uuid->data, load_addr) < 0) {
+ 			return -1;
+diff --git a/plat/qemu/common/qemu_common.c b/plat/qemu/common/qemu_common.c
+index 4e726cd..9c52033 100644
+--- a/plat/qemu/common/qemu_common.c
++++ b/plat/qemu/common/qemu_common.c
+@@ -49,6 +49,10 @@
+ #define MAP_NS_DRAM0	MAP_REGION_FLAT(NS_DRAM0_BASE, NS_DRAM0_SIZE,	\
+ 					MT_MEMORY | MT_RW | MT_NS)
+ 
++#define MAP_SEC_TA_RAM_LOAD MAP_REGION_FLAT(SEC_TA_RAM_BASE,		\
++					SEC_TA_RAM_LOAD_SIZE,		\
++					MT_MEMORY | MT_RW | MT_SECURE)
++
+ #define MAP_FLASH0	MAP_REGION_FLAT(QEMU_FLASH0_BASE, QEMU_FLASH0_SIZE, \
+ 					MT_MEMORY | MT_RO | EL3_PAS)
+ 
+@@ -101,6 +105,9 @@ static const mmap_region_t plat_qemu_mmap[] = {
+ #else
+ 	MAP_BL32_MEM,
+ #endif
++#if defined(SPD_spmd) && SPMD_SPM_AT_SEL2
++	MAP_SEC_TA_RAM_LOAD,
++#endif
+ #ifdef MAP_FW_HANDOFF
+ 	MAP_FW_HANDOFF,
+ #endif
+diff --git a/plat/qemu/qemu/include/platform_def.h b/plat/qemu/qemu/include/platform_def.h
+index 7dd7dcd..adcfd14 100644
+--- a/plat/qemu/qemu/include/platform_def.h
++++ b/plat/qemu/qemu/include/platform_def.h
+@@ -198,10 +198,18 @@
+ #define NS_IMAGE_OFFSET			(NS_DRAM0_BASE + 0x20000000)
+ #define NS_IMAGE_MAX_SIZE		(NS_DRAM0_SIZE - 0x20000000)
+ 
+-#define PLAT_PHY_ADDR_SPACE_SIZE	(1ULL << 32)
+-#define PLAT_VIRT_ADDR_SPACE_SIZE	(1ULL << 32)
+-#define MAX_MMAP_REGIONS		(13 + MAX_MMAP_REGIONS_SPMC)
+-#define MAX_XLAT_TABLES			(6 + MAX_XLAT_TABLES_SPMC)
++/*
++ * Large secure TA RAM: Secure-only RAM added to QEMU's virt board at
++ * 0x3000000000 (qemu/hw/arm/virt.c patch). BL2 loads the OP-TEE SP package
++ * at its start, so it maps only a small load window there.
++ */
++#define SEC_TA_RAM_BASE			ULL(0x3000000000)
++#define SEC_TA_RAM_LOAD_SIZE		ULL(0x02000000)
++
++#define PLAT_PHY_ADDR_SPACE_SIZE	(1ULL << 38)
++#define PLAT_VIRT_ADDR_SPACE_SIZE	(1ULL << 38)
++#define MAX_MMAP_REGIONS		(14 + MAX_MMAP_REGIONS_SPMC)
++#define MAX_XLAT_TABLES			(8 + MAX_XLAT_TABLES_SPMC)
+ #define MAX_IO_DEVICES			4
+ #define MAX_IO_HANDLES			4
+ 

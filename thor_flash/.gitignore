@@ -1,0 +1,9 @@
+# NVIDIA BSP + rootfs + signed flash packages (~64GB, root-owned). Recreate: progress.md "One-time host setup".
+/bsp/
+# x86 OP-TEE build tree (~535MB). Recreate from optee-srcs-2gb.tar.gz: progress.md "Build a new size on x86".
+/build_*/optee-srcs/
+# TA build intermediates (built TAs are kept in to_x86_*/large_mem_tas/out)
+/build_*/large_mem_tas/out/
+/build_*/large_mem_tas/host/bigmem
+*.o
+*.d

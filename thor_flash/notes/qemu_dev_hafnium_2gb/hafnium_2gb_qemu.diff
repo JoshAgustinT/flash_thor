@@ -1,0 +1,29 @@
+diff --git a/hw/arm/virt.c b/hw/arm/virt.c
+index a96452f..d49dc88 100644
+--- a/hw/arm/virt.c
++++ b/hw/arm/virt.c
+@@ -1666,6 +1666,7 @@ static void create_secure_ram(VirtMachineState *vms,
+                               MemoryRegion *secure_tag_sysmem)
+ {
+     MemoryRegion *secram = g_new(MemoryRegion, 1);
++    MemoryRegion *secram_ta = g_new(MemoryRegion, 1); /* TEEm */
+     char *nodename;
+     hwaddr base = vms->memmap[VIRT_SECURE_MEM].base;
+     hwaddr size = vms->memmap[VIRT_SECURE_MEM].size;
+@@ -1675,6 +1676,16 @@ static void create_secure_ram(VirtMachineState *vms,
+                            &error_fatal);
+     memory_region_add_subregion(secure_sysmem, base, secram);
+ 
++    /*
++     * TEEm: 2GB Secure-only RAM for OP-TEE (models the Thor carve-out) (the paper's
++     * CFG_TA_RAM_START). Like secram it exists only in the Secure address
++     * space, so the Normal world can't reach it. This stands in for the
++     * TZASC carve-out the firmware would program on real hardware.
++     */
++    memory_region_init_ram(secram_ta, NULL, "virt.secure-ta-ram",
++                           0x80000000ULL /* 2GB (Thor first flash size) */, &error_fatal);
++    memory_region_add_subregion(secure_sysmem, 0x3000000000ULL, secram_ta);
++
+     nodename = g_strdup_printf("/secram@%" PRIx64, base);
+     qemu_fdt_add_subnode(ms->fdt, nodename);
+     qemu_fdt_setprop_string(ms->fdt, nodename, "device_type", "memory");

@@ -1,0 +1,239 @@
+# SPDX-License-Identifier: BSD-2-Clause
+#
+# SPDX-FileCopyrightText: Copyright (c) 2020-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+#
+
+include core/arch/arm/cpu/cortex-armv8-0.mk
+
+# TZDRAM and SHMEM addresses and sizes
+CFG_TZDRAM_START ?= 0x80000000
+
+# Use dynamic shared memory and disable static shared memory because
+# the NS shared memory address and size are calculated dynamically
+$(call force,CFG_CORE_DYN_SHM,y)
+$(call force,CFG_CORE_RESERVED_SHM,n)
+
+# The NS memory range will be calculated automatically.
+CFG_AUTO_MAX_PA_BITS = y
+
+# Enable ARM64 core
+$(call force,CFG_ARM64_core,y)
+
+# Default number of threads is the number of CPU cores
+CFG_NUM_THREADS = 14
+
+# Default heap size for Core, 128 kB
+CFG_CORE_HEAP_SIZE ?= 2097152
+
+# Default size for reserved virtual memory space, 32 MB
+CFG_RESERVED_VASPACE_SIZE ?= (1024 * 1024 * 32)
+
+# Increase the mmap region to accommodate more
+# device mappings in the global static map
+CFG_MMAP_REGIONS ?= 24
+
+# Default mutex polling interval in milliseconds, when this value is larger
+# than 0, the mutex will send a wait notification RPC with timeout as
+# CFG_MUTEX_POLL_INTERVAL. As long as the RPC return TEE_ERROR_TIMEOUT,
+# mutex will not return and keep trying to send the RPC.
+# This makes mutex acts like using polling mechanism to normal world with
+# the given interval.
+# When this value is 0, mutex does not use polling.
+CFG_MUTEX_POLL_INTERVAL ?= 0
+
+# Disable LTC mutex for invoking LTC crypto function in IRQ handler.
+CFG_CORE_LTC_MUTEX_DISABLE ?= n
+
+# Makes sure everything built is 64-bit, even TA targets.
+supported-ta-targets = ta_arm64
+
+# Enables large physical address extension, necessary if ARM64 core is initialized.
+$(call force,CFG_WITH_LPAE,y)
+
+CFG_LPAE_ADDR_SPACE_BITS = 38
+$(call force,CFG_WITH_PAGER,n)
+
+# Lets platform interact with ATF
+$(call force,CFG_WITH_ARM_TRUSTED_FW,y)
+
+# Initialize kernel time source
+$(call force,CFG_SECURE_TIME_SOURCE_CNTPCT,y)
+
+CFG_DTB_MAX_SIZE = 0x10000
+$(call force,CFG_DT,y)
+
+$(call force,CFG_RPMB_FS,n)
+$(call force,CFG_RPMB_KEY_HAS_PROVISIONED,n)
+$(call force,CFG_RPMB_WRITE_KEY,n)
+$(call force,CFG_RPMB_TESTKEY,n)
+
+# Enable PKCS11 tests in xtest
+$(call force,CFG_PKCS11_TA,y)
+
+# Set the default log level to INFO
+$(call force,CFG_TEE_CORE_LOG_LEVEL,2)
+
+# Do not halt system if an invalid EKB is detected
+$(call force,CFG_JETSON_MANDATORY_EKB,n)
+
+# Trusted OS implementation version
+# Overriding TEE_IMPL_VERSION for consistency in version reporting
+TEE_IMPL_VERSION = $(CFG_OPTEE_REVISION_MAJOR).$(CFG_OPTEE_REVISION_MINOR)
+
+$(call force,CFG_CORE_PHYS_RELOCATABLE,y)
+
+CFG_TEE_RAM_VA_SIZE ?= 0x00800000
+
+ifeq ($(PLATFORM_FLAVOR),t234)
+CFG_TZDRAM_SIZE  ?= 0x03f80000
+
+# T234 has 3 clusters and 4 cores per cluster
+$(call force,CFG_CORE_CLUSTER_SHIFT,2)
+# Secondary CPU cores. t234 platform contains 12 CPU cores
+CFG_TEE_CORE_NB_CORE = 12
+
+# Enable Jetson user key PTA and drivers
+$(call force,CFG_JETSON_USER_KEY_PTA,y)
+$(call force,CFG_TEGRA_DRIVERS,y)
+$(call force,CFG_TEGRA_FUSE,y)
+$(call force,CFG_TEGRA_SE,y)
+$(call force,CFG_TEGRA_SE_RNG1,y)
+ifeq ($(CFG_TEGRA_SE_RNG1),y)
+$(call force,CFG_WITH_SOFTWARE_PRNG,n)
+# Enable HWRNG PTA to export HW RNG to Normal World
+CFG_HWRNG_PTA ?= y
+# HWRNG output rate in bytes per second reported to Normal World
+CFG_HWRNG_RATE ?= 4096
+# Entropy quality per 1024 bits of output (1024 = full entropy)
+CFG_HWRNG_QUALITY ?= 1024
+endif
+
+# Enable tegra crypto driver
+$(call force,CFG_CRYPTO_DRIVER_TEGRA_SE,n)
+ifeq ($(CFG_CRYPTO_DRIVER_TEGRA_SE),y)
+# Enable tegra crypto HW accelerated hash driver
+$(call force,CFG_CRYPTO_DRV_HASH_TEGRA_SE,y)
+endif
+
+$(call force,CFG_MAP_EXT_DT_SECURE,y)
+
+# Enable Early TA support
+$(call force,CFG_EARLY_TA,y)
+$(call force,CFG_EMBEDDED_TS,y)
+
+$(call force,CFG_TEGRA_SE_USE_TEST_KEYS,y)
+
+libdeps += $(NV_CCC_PREBUILT)
+
+# Enable Pointer Authentication for core (S-EL1)
+$(call force,CFG_CORE_PAUTH,y)
+
+# Disable Pointer Authentication for TA (S-EL0)
+$(call force,CFG_TA_PAUTH,n)
+
+# Leverage relocatable optee feature while not enable EL2 SPMC
+$(call force,CFG_CORE_SEL2_SPMC,n)
+
+# Enable tegra combined UART driver
+$(call force,CFG_TEGRA_TCU,y)
+
+$(call force,CFG_CORE_ASLR,n)
+
+# Enable mutex polling for StMM
+CFG_MUTEX_POLL_INTERVAL = 100
+endif
+
+ifeq ($(PLATFORM_FLAVOR),t256)
+CFG_TZDRAM_SIZE  ?= 0x02000000
+
+# T256 has 4 clusters and 2 cores per cluster
+$(call force,CFG_CORE_CLUSTER_SHIFT,1)
+# Secondary CPU cores. t256 platform contains 8 CPU cores
+CFG_TEE_CORE_NB_CORE = 8
+
+$(call force,CFG_MAP_EXT_DT_SECURE,y)
+
+$(call force,CFG_WITH_SOFTWARE_PRNG,y)
+
+# Enable Early TA support
+$(call force,CFG_EARLY_TA,y)
+$(call force,CFG_EMBEDDED_TS,y)
+
+$(call force,CFG_ARM64_core,y)
+$(call force,CFG_CORE_FFA,y)
+$(call force,CFG_FFA_CONSOLE,y)
+$(call force,CFG_CORE_SEL2_SPMC,y)
+$(call force,CFG_WITH_STACK_CANARIES,y)
+$(call force,CFG_TEGRA_UTC,y)
+CFG_CORE_LTC_MUTEX_DISABLE := y
+
+$(call force,CFG_CORE_ASLR,y)
+
+CFG_STACK_TMP_EXTRA ?= 8192
+endif
+
+ifeq ($(PLATFORM_FLAVOR),t264)
+CFG_TZDRAM_SIZE  ?= 0xFFE00000
+CFG_NUM_TA_L2_TBLS = 40
+CFG_CORE_PREALLOC_EL0_TBLS = y
+
+# Secondary CPU cores. t264 platform contains 28 CPU cores
+CFG_TEE_CORE_NB_CORE = 28
+
+$(call force,CFG_MAP_EXT_DT_SECURE,y)
+
+libdeps += $(NV_CCC_PREBUILT)
+
+# Enable Jetson user key PTA and drivers
+$(call force,CFG_JETSON_USER_KEY_PTA,y)
+$(call force,CFG_TEGRA_DRIVERS,y)
+$(call force,CFG_TEGRA_FUSE,y)
+$(call force,CFG_TEGRA_SE,y)
+$(call force,CFG_TEGRA_SE_RNG1,y)
+ifeq ($(CFG_TEGRA_SE_RNG1),y)
+$(call force,CFG_WITH_SOFTWARE_PRNG,n)
+# Enable HWRNG PTA to export HW RNG to Normal World
+CFG_HWRNG_PTA ?= y
+# HWRNG output rate in bytes per second reported to Normal World
+CFG_HWRNG_RATE ?= 4096
+# Entropy quality per 1024 bits of output (1024 = full entropy)
+CFG_HWRNG_QUALITY ?= 1024
+endif
+
+# Enable Early TA support
+$(call force,CFG_EARLY_TA,y)
+$(call force,CFG_EMBEDDED_TS,y)
+
+$(call force,CFG_ARM64_core,y)
+$(call force,CFG_CORE_FFA,y)
+$(call force,CFG_FFA_CONSOLE,y)
+$(call force,CFG_CORE_SEL2_SPMC,y)
+$(call force,CFG_WITH_STACK_CANARIES,y)
+$(call force,CFG_TEGRA_UTC,y)
+CFG_CORE_LTC_MUTEX_DISABLE := y
+
+$(call force,CFG_CORE_ASLR,y)
+$(call force,CFG_STMM_SERVICE,y)
+
+CFG_STACK_TMP_EXTRA ?= 8192
+endif
+
+# Enable generic cryptographic driver interface
+# if tegra crypto driver is enabled
+ifeq ($(CFG_CRYPTO_DRIVER_TEGRA_SE),y)
+$(call force,CFG_CRYPTO_DRIVER,y)
+ifeq ($(DEBUG),1)
+# Enable the debug log for crypto driver
+$(call force,CFG_CRYPTO_DRIVER_DEBUG,1)
+else
+$(call force,CFG_CRYPTO_DRIVER_DEBUG,0)
+endif
+ifeq ($(CFG_CRYPTO_DRV_HASH_TEGRA_SE),y)
+$(call force,CFG_CRYPTO_DRV_HASH,y)
+endif
+endif
+
+# Include platform configs from $(NV_OPTEE_DIR)
+ifneq ("$(wildcard $(NV_OPTEE_DIR))","")
+include $(NV_OPTEE_DIR)/$(platform-dir)/conf.mk
+endif
